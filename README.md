@@ -53,6 +53,35 @@ in-place and produces out tokens, which a host action may override.
 guards are delegated to the host through the `:guard` option and are disabled
 when no evaluator is given.
 
+## Running a net
+
+`ExCpn.Instance` runs one net as a `gen_statem`. Lifecycle states are
+`:running`, `:busy` (a host action is in flight), and `:quiescent`. The
+marking is data, never a state.
+
+```elixir
+actions = %{
+  "publish" => fn "publish", %{"h" => token} ->
+    case Publisher.push(token) do
+      :ok -> {:ok, %{"done" => Map.put(token, "published_at", now())}}
+      {:error, why} -> {:error, why}
+    end
+  end
+}
+
+{:ok, pid} = ExCpn.Instance.start_link(net: net, actions: actions, max_retries: 3)
+:ok = ExCpn.Instance.put_token(pid, "todo", %{"id" => 7})
+marking = ExCpn.Instance.await_quiescent(pid)
+```
+
+A transition with a bound action runs it in a monitored process and fires
+only on success; the action may return `{:ok, produced}` to supply the out
+tokens. Failures and crashes count against `max_retries`; a transition over
+budget is retired, and any transition guarded by `retry <that-name>` becomes
+enabled, so the net models its own failure handling. Unbound transitions
+move tokens as their arcs say. A `:journal` callback receives every
+`{:fired, ...}` and `{:failed, ...}` event.
+
 ## Installation
 
 ```elixir

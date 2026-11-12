@@ -12,7 +12,11 @@ defmodule ExCpn.Marking do
 
   @type marking :: %{String.t() => [Net.token()]}
   @type binding :: %{String.t() => Net.token()}
-  @type opts :: [guard: (Net.Guard.t(), binding -> boolean), after: String.t() | nil]
+  @type opts :: [
+          guard: (Net.Guard.t(), binding -> boolean),
+          after: String.t() | nil,
+          skip: [String.t()]
+        ]
 
   @spec initial(Net.t()) :: marking
   def initial(%Net{} = net) do
@@ -43,6 +47,7 @@ defmodule ExCpn.Marking do
   @spec enabled(Net.t(), marking, opts) :: [{Transition.t(), binding}]
   def enabled(%Net{} = net, marking, opts \\ []) do
     net.transitions
+    |> Enum.reject(&(&1.name in Keyword.get(opts, :skip, [])))
     |> rotate_after(opts[:after])
     |> Enum.sort_by(& &1.priority, :desc)
     |> Enum.flat_map(fn t ->
