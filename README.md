@@ -97,13 +97,16 @@ actions = %{
 marking = ExCpn.Instance.await_quiescent(pid)
 ```
 
-A transition with a bound action runs it in a monitored process and fires
+A transition with a bound action runs it as a supervised task and fires
 only on success; the action may return `{:ok, produced}` to supply the out
 tokens. Failures and crashes count against `max_retries`; a transition over
 budget is retired, and any transition guarded by `retry <that-name>` becomes
 enabled, so the net models its own failure handling. Unbound transitions
 move tokens as their arcs say. A `:journal` callback receives every
 `{:fired, name, binding, marking}` and `{:failed, name, reason, count}`.
+Stopping the instance stops its task supervisor, so no action outlives it.
+Instances register under an atom `:name` or any `:via` tuple, such as a
+`Registry` key.
 
 ## Not yet
 

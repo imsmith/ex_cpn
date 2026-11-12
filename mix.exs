@@ -28,7 +28,7 @@ defmodule ExCpn.MixProject do
     [
       licenses: ["AGPL-3.0-only"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib mix.exs README.md LICENSE)
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 
@@ -36,7 +36,7 @@ defmodule ExCpn.MixProject do
     [
       main: "readme",
       source_ref: "v#{@version}",
-      extras: ["README.md", "LICENSE"],
+      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
       groups_for_modules: [
         Format: [ExCpn.Parser, ExCpn.Encoder, ExCpn.Tcl, ExCpn.Validator],
         Model: [ExCpn.Net, ExCpn.Net.Place, ExCpn.Net.Arc, ExCpn.Net.Guard, ExCpn.Net.Transition],
