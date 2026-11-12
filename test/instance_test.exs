@@ -63,12 +63,47 @@ defmodule ExCpn.InstanceTest do
     assert_received {:fired, "give-up", _, _}
   end
 
+  @tag :capture_log
   test "a crashing action counts as a failure, not an instance crash" do
+    test = self()
     actions = %{"hash" => fn _, _ -> raise "nope" end}
-    pid = start_supervised!({Instance, net: net(), actions: actions, max_retries: 1})
+
+    pid =
+      start_supervised!(
+        {Instance, net: net(), actions: actions, max_retries: 1, journal: &send(test, &1)}
+      )
+
     marking = Instance.await_quiescent(pid)
     assert marking["todo"] == [%{}]
+    assert_received {:failed, "hash", {:crashed, {%RuntimeError{message: "nope"}, _}}, 1}
     assert Instance.state(pid) == :quiescent
+  end
+
+  test "stopping the instance stops an in-flight action" do
+    test = self()
+
+    actions = %{
+      "hash" => fn _, _ ->
+        send(test, {:action_pid, self()})
+        Process.sleep(:infinity)
+      end
+    }
+
+    start_supervised!({Instance, net: net(), actions: actions})
+    assert_receive {:action_pid, action_pid}
+    ref = Process.monitor(action_pid)
+    :ok = stop_supervised!(Instance)
+    assert_receive {:DOWN, ^ref, :process, ^action_pid, _}
+  end
+
+  test "registers under an atom name and via a Registry" do
+    start_supervised!({Instance, net: net(), name: :cpn_named})
+    assert %{"done" => [%{}]} = Instance.await_quiescent(:cpn_named)
+
+    start_supervised!({Registry, keys: :unique, name: ExCpn.TestRegistry})
+    via = {:via, Registry, {ExCpn.TestRegistry, "net-1"}}
+    start_supervised!(Supervisor.child_spec({Instance, net: net(), name: via}, id: :via_instance))
+    assert %{"done" => [%{}]} = Instance.await_quiescent(via)
   end
 
   test "put_token wakes a quiescent instance" do

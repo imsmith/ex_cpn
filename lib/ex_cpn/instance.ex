@@ -6,20 +6,39 @@ defmodule ExCpn.Instance do
   Options:
 
     * `:net` (required) - an `ExCpn.Net`
-    * `:actions` - `%{transition_name => (name, binding -> :ok | {:ok, produced} | {:error, reason})}`.
-      Bound transitions run their action in a monitored process before firing; `produced` maps
-      out-place to token. Unbound transitions move tokens as the arcs say.
-    * `:guard` - evaluator for `shell`/`http` guards, `(Guard.t, binding -> boolean)`
+    * `:actions` - `%{transition_name => action}`; see `t:action/0`. Bound transitions run their
+      action under a `Task.Supervisor` owned by the instance before firing. Unbound transitions
+      move tokens as the arcs say.
+    * `:guard` - evaluator for `shell`/`http` guards; see `t:guard_fun/0`
     * `:journal` - `(event -> any)`; events are `{:fired, name, binding, marking}` and
       `{:failed, name, reason, count}`
     * `:max_retries` - failures before a transition is retired and its `retry` guard holders
       become enabled (default 3)
-    * `:name` - registration, as for `GenServer`
+    * `:name` - registration: an atom, or any `:gen_statem` server name such as
+      `{:via, Registry, {MyRegistry, key}}`
+
+  Stopping the instance stops its task supervisor, so no action outlives it.
   """
 
   @behaviour :gen_statem
 
   alias ExCpn.{Marking, Net}
+
+  @typedoc """
+  A host action for a transition. Receives the transition name and the binding (`%{var => token}`).
+  `{:ok, produced}` supplies out tokens by place; `:ok` lets the arcs decide; `{:error, reason}`
+  or a raise counts as one failure.
+  """
+  @type action :: (String.t(), Marking.binding() ->
+                     :ok | {:ok, %{String.t() => Net.token()}} | {:error, term})
+
+  @typedoc "Host evaluator for `shell` and `http` guards."
+  @type guard_fun :: (Net.Guard.t(), Marking.binding() -> boolean)
+
+  @typedoc "Journal event."
+  @type event ::
+          {:fired, String.t(), Marking.binding(), Marking.marking()}
+          | {:failed, String.t(), term, pos_integer}
 
   defstruct [
     :net,
@@ -27,6 +46,7 @@ defmodule ExCpn.Instance do
     :guard,
     :journal,
     :task,
+    :tasks,
     actions: %{},
     retries: %{},
     max_retries: 3,
@@ -36,6 +56,7 @@ defmodule ExCpn.Instance do
   # --- API -----------------------------------------------------------------
 
   @doc "Child spec with `restart: :transient`; `id` is `opts[:name]` or this module."
+  @spec child_spec(keyword) :: Supervisor.child_spec()
   def child_spec(opts),
     do: %{
       id: opts[:name] || __MODULE__,
@@ -47,13 +68,16 @@ defmodule ExCpn.Instance do
   @spec start_link(keyword) :: :gen_statem.start_ret()
   def start_link(opts) do
     case Keyword.fetch(opts, :name) do
-      {:ok, name} -> :gen_statem.start_link(via(name), __MODULE__, opts, [])
-      :error -> :gen_statem.start_link(__MODULE__, opts, [])
+      {:ok, name} when is_atom(name) ->
+        :gen_statem.start_link({:local, name}, __MODULE__, opts, [])
+
+      {:ok, name} ->
+        :gen_statem.start_link(name, __MODULE__, opts, [])
+
+      :error ->
+        :gen_statem.start_link(__MODULE__, opts, [])
     end
   end
-
-  defp via(name) when is_atom(name), do: {:local, name}
-  defp via(other), do: other
 
   @doc "The current marking."
   @spec marking(:gen_statem.server_ref()) :: Marking.marking()
@@ -67,7 +91,11 @@ defmodule ExCpn.Instance do
   @spec put_token(:gen_statem.server_ref(), String.t(), Net.token()) :: :ok
   def put_token(ref, place, token), do: :gen_statem.call(ref, {:put, place, token})
 
-  @doc "Blocks until the instance has nothing left to fire, then returns the marking."
+  @doc """
+  Blocks until the instance has nothing left to fire, then returns the marking.
+
+  On a net that never quiesces (a self-loop with no guard) this only returns by `timeout`.
+  """
   @spec await_quiescent(:gen_statem.server_ref(), timeout) :: Marking.marking()
   def await_quiescent(ref, timeout \\ 5_000), do: :gen_statem.call(ref, :await, timeout)
 
@@ -79,10 +107,12 @@ defmodule ExCpn.Instance do
   @impl true
   def init(opts) do
     net = Keyword.fetch!(opts, :net)
+    {:ok, tasks} = Task.Supervisor.start_link()
 
     data = %__MODULE__{
       net: net,
       marking: Marking.initial(net),
+      tasks: tasks,
       actions: Keyword.get(opts, :actions, %{}),
       guard: Keyword.get(opts, :guard),
       journal: Keyword.get(opts, :journal, fn _ -> :ok end),
@@ -106,10 +136,11 @@ defmodule ExCpn.Instance do
 
   def handle_event({:call, from}, {:put, place, token}, state, data) do
     data = %{data | marking: Marking.put(data.marking, place, token)}
+    reply = [{:reply, from, :ok}]
 
     if state == :quiescent,
-      do: {:next_state, :running, data, [{:reply, from, :ok}]},
-      else: {:keep_state, data, [{:reply, from, :ok}]}
+      do: {:next_state, :running, data, reply},
+      else: {:keep_state, data, reply}
   end
 
   def handle_event({:call, from}, :await, :quiescent, data),
@@ -127,30 +158,33 @@ defmodule ExCpn.Instance do
     end
   end
 
+  # Task result arrives first; the matching :DOWN follows and is ignored by the catch-all below.
+  def handle_event(:info, {ref, result}, :busy, %{task: {ref, t, binding}} = data) do
+    Process.demonitor(ref, [:flush])
+    data = %{data | task: nil}
+
+    case result do
+      :ok ->
+        {:next_state, :running, fired(data, t, binding, %{})}
+
+      {:ok, produced} when is_map(produced) ->
+        {:next_state, :running, fired(data, t, binding, produced)}
+
+      {:error, why} ->
+        {:next_state, :running, failed(data, t, why)}
+
+      other ->
+        {:next_state, :running, failed(data, t, {:bad_return, other})}
+    end
+  end
+
   def handle_event(
         :info,
         {:DOWN, ref, :process, _pid, reason},
         :busy,
-        %{task: {ref, t, binding}} = data
+        %{task: {ref, t, _}} = data
       ) do
-    data = %{data | task: nil}
-
-    case reason do
-      {:result, :ok} ->
-        {:next_state, :running, fired(data, t, binding, %{})}
-
-      {:result, {:ok, produced}} when is_map(produced) ->
-        {:next_state, :running, fired(data, t, binding, produced)}
-
-      {:result, {:error, why}} ->
-        {:next_state, :running, failed(data, t, why)}
-
-      {:result, other} ->
-        {:next_state, :running, failed(data, t, {:bad_return, other})}
-
-      crash ->
-        {:next_state, :running, failed(data, t, crash)}
-    end
+    {:next_state, :running, failed(%{data | task: nil}, t, {:crashed, reason})}
   end
 
   def handle_event(:info, _msg, _state, _data), do: :keep_state_and_data
@@ -160,22 +194,14 @@ defmodule ExCpn.Instance do
   defp dispatch(data, t, binding) do
     case Map.fetch(data.actions, t.name) do
       {:ok, action} ->
-        {_pid, ref} =
-          spawn_monitor(fn -> exit({:result, run_action(action, t.name, binding)}) end)
+        %Task{ref: ref} =
+          Task.Supervisor.async_nolink(data.tasks, fn -> action.(t.name, binding) end)
 
         {:next_state, :busy, %{data | task: {ref, t, binding}}}
 
       :error ->
         {:repeat_state, fired(data, t, binding, %{}), []}
     end
-  end
-
-  # Host actions are untrusted code at the library boundary: any raise becomes a
-  # counted failure rather than killing the instance.
-  defp run_action(action, name, binding) do
-    action.(name, binding)
-  rescue
-    e -> {:error, {e, __STACKTRACE__}}
   end
 
   defp fired(data, t, binding, produced) do

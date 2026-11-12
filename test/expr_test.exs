@@ -30,6 +30,10 @@ defmodule ExCpn.ExprTest do
     refute Expr.truthy?("$n / 0 == 1", @b)
   end
 
+  test "truthy? on unparseable source raises" do
+    assert_raise ArgumentError, ~r/invalid guard expression/, fn -> Expr.truthy?("1 +", %{}) end
+  end
+
   test "parse errors" do
     assert {:error, _} = Expr.parse("1 +")
     assert {:error, _} = Expr.parse("(1")

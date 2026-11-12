@@ -7,52 +7,7 @@ defmodule ExCpn.Net do
   its single seed token.
   """
 
-  defmodule Place do
-    @moduledoc "A typed place. `type` is `module:node`, naming a YANG container or grouping."
-    @enforce_keys [:name, :type]
-    defstruct [:name, :type, :line]
-    @type t :: %__MODULE__{name: String.t(), type: String.t(), line: pos_integer | nil}
-  end
-
-  defmodule Arc do
-    @moduledoc """
-    One `in` or `out` entry of a transition.
-
-    On an `in` arc, `expr` is the variable the consumed token is bound to.
-    On an `out` arc, `expr` is `$var` to forward a bound token or a literal dict.
-    """
-    @enforce_keys [:place, :expr]
-    defstruct [:place, :expr]
-    @type t :: %__MODULE__{place: String.t(), expr: String.t()}
-  end
-
-  defmodule Guard do
-    @moduledoc """
-    A transition guard. `:local` guards are evaluated by `ExCpn.Expr`; `:shell`
-    and `:http` are delegated to the host; `:retry` names another transition
-    and holds once that transition has exhausted its retry budget.
-    """
-    @enforce_keys [:target, :expr]
-    defstruct [:target, :expr]
-    @type target :: :local | :shell | :http | :retry
-    @type t :: %__MODULE__{target: target, expr: String.t()}
-  end
-
-  defmodule Transition do
-    @moduledoc "A transition: in-arcs, out-arcs, optional guard, priority (default 0), label."
-    @enforce_keys [:name]
-    defstruct name: nil, in: [], out: [], guard: nil, priority: 0, label: "", line: nil
-
-    @type t :: %__MODULE__{
-            name: String.t(),
-            in: [Arc.t()],
-            out: [Arc.t()],
-            guard: Guard.t() | nil,
-            priority: integer,
-            label: String.t(),
-            line: pos_integer | nil
-          }
-  end
+  alias ExCpn.Net.{Place, Transition}
 
   defstruct version: "1.0", imports: [], places: [], init: %{}, transitions: []
 

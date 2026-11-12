@@ -32,8 +32,8 @@ defmodule ExCpn.Expr do
   @doc """
   Evaluates a guard expression against a binding; true only when the result is truthy.
 
-  Accepts source or a parsed AST. Source that fails to parse is `false`;
-  run `ExCpn.Validator` first to surface such errors.
+  Accepts source or a parsed AST. Source that fails to parse raises `ArgumentError`;
+  `ExCpn.Validator` reports the same errors without raising.
 
       iex> ExCpn.Expr.truthy?("$w(age) > 300", %{"w" => %{"age" => "301"}})
       true
@@ -46,7 +46,7 @@ defmodule ExCpn.Expr do
   def truthy?(src, binding) when is_binary(src) do
     case parse(src) do
       {:ok, ast} -> truthy?(ast, binding)
-      {:error, _} -> false
+      {:error, msg} -> raise ArgumentError, "invalid guard expression #{inspect(src)}: #{msg}"
     end
   end
 
