@@ -3,7 +3,7 @@
 Coloured Petri Net action models for Elixir. Parses, encodes, validates, and
 runs nets written in the `.cpn.tcl` format: typed places, transitions with
 `in`/`out` arcs, four-target guards (`local`, `shell`, `http`, `retry`),
-priorities, and labels.
+priorities, and labels. No runtime dependencies.
 
 ```elixir
 {:ok, net} = ExCpn.parse_file("deploy.cpn.tcl")
@@ -36,22 +36,45 @@ transition handle {
 }
 ```
 
+| Statement | Meaning |
+|---|---|
+| `cpn-spec <version>` | Format version. Currently `1.0`. |
+| `yang import <mod> ...` | YANG modules that `place -type` may reference. Accumulates. |
+| `place <name> -type <mod>:<node>` | A typed place. `-type` is required. |
+| `init <place> <dict>` | Seed token at t=0. `{}` is an empty token; `{k v k v}` is a map. |
+| `transition <name> { ... }` | Sub-forms: `in`, `out`, `guard`, `priority`, `label`. |
+
+Inside a transition, `in {place var} ...` binds one consumed token per place
+to `var`; `out {place $var} ...` forwards a bound token, or a literal dict.
 Topology is implicit: a transition whose `out` names a place that another
-transition's `in` names is how the two connect. Tokens are maps; `init` with
-`{}` seeds an empty token. `$var(field)` in a `local` guard reads
-`token["field"]`.
+transition's `in` names is how the two connect. A transition with `out` but
+no `in` is a source and mints an empty token each time it fires.
+
+Guards take one `{target expression}` pair:
+
+| Target | Expression | Evaluated by |
+|---|---|---|
+| `local` | Tcl `expr` subset over bound variables | `ExCpn.Expr`, inside the library |
+| `shell` | Readiness predicate for a CLI | The host, through the `:guard` option |
+| `http` | Readiness predicate for an HTTP request | The host, through the `:guard` option |
+| `retry` | Name of another transition | `ExCpn.Instance`: true once that transition is over its retry budget |
+
+`ExCpn.Expr` supports `$var`, `$var(field)`, numbers, `"strings"`, parentheses,
+unary `!` and `-`, `* / %`, `+ -`, `< > <= >=`, `== != eq ne`, `&&`, `||`.
+A missing variable is `nil`, and no comparison with `nil` holds.
 
 ## Semantics
 
-`ExCpn.Marking` is pure. A marking is `%{place => [token]}`. `enabled/3`
-returns transitions with a satisfying binding, highest priority first; within
-a priority, source order rotated to start after the last fired transition so
-self-loops cannot starve siblings. `fire/4` consumes one bound token per
-in-place and produces out tokens, which a host action may override.
+`ExCpn.Marking` is pure. A marking is `%{place => [token]}`, each list a
+multiset in arrival order. `enabled/3` returns transitions with a satisfying
+binding, highest priority first; within a priority, source order rotated to
+start after the last fired transition so a self-loop cannot starve its
+siblings. `fire/4` consumes one bound token per in-place and produces out
+tokens, which a host action may override. `run/4` fires to quiescence or a
+firing cap.
 
-`local` guards are evaluated by `ExCpn.Expr`. `shell`, `http`, and `retry`
-guards are delegated to the host through the `:guard` option and are disabled
-when no evaluator is given.
+Without a `:guard` evaluator, `shell` and `http` guards are disabled and their
+transitions never fire.
 
 ## Running a net
 
@@ -80,7 +103,21 @@ tokens. Failures and crashes count against `max_retries`; a transition over
 budget is retired, and any transition guarded by `retry <that-name>` becomes
 enabled, so the net models its own failure handling. Unbound transitions
 move tokens as their arcs say. A `:journal` callback receives every
-`{:fired, ...}` and `{:failed, ...}` event.
+`{:fired, name, binding, marking}` and `{:failed, name, reason, count}`.
+
+## Not yet
+
+Hierarchical nets, compensation, timed transitions, and telemetry events are
+not in `cpn-spec 1.0` and not implemented. Each needs a spec decision first.
+
+## Development
+
+```sh
+mix test
+mix credo --strict
+mix dialyzer
+mix docs
+```
 
 ## Installation
 

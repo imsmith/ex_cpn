@@ -7,6 +7,13 @@ defmodule ExCpn.Parser do
 
   @guard_targets %{"local" => :local, "shell" => :shell, "http" => :http, "retry" => :retry}
 
+  @doc """
+  Parses source to a net. See `ExCpn.parse/1`.
+
+      iex> {:ok, net} = ExCpn.Parser.parse("cpn-spec 1.0\\nyang import a b\\n")
+      iex> net.imports
+      ["a", "b"]
+  """
   @spec parse(String.t()) :: {:ok, Net.t()} | {:error, {pos_integer, String.t()}}
   def parse(src) do
     with {:ok, cmds} <- Tcl.commands(src),
@@ -110,7 +117,14 @@ defmodule ExCpn.Parser do
     end
   end
 
-  @doc "Parses a Tcl dict literal (`{}` or `{k v k v}`) into a token map."
+  @doc """
+  Parses a Tcl dict literal (`{}` or `{k v k v}`) into a token map.
+
+      iex> ExCpn.Parser.token("id 7 kind {a b}")
+      {:ok, %{"id" => "7", "kind" => "a b"}}
+      iex> ExCpn.Parser.token("odd")
+      {:error, "token must have an even number of elements: odd"}
+  """
   @spec token(String.t()) :: {:ok, map()} | {:error, String.t()}
   def token(value) do
     case Tcl.words(value) do

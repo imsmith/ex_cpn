@@ -3,6 +3,13 @@ defmodule ExCpn.Encoder do
 
   alias ExCpn.Net
 
+  @doc """
+  Renders a net. Output is parseable by `ExCpn.parse/1` to an equal net.
+
+      iex> {:ok, net} = ExCpn.parse("cpn-spec 1.0\\nplace a -type m:n\\ninit a {k v}\\n")
+      iex> ExCpn.Encoder.encode(net)
+      "cpn-spec 1.0\\n\\nplace a -type m:n\\n\\ninit a {k v}\\n"
+  """
   @spec encode(Net.t()) :: String.t()
   def encode(%Net{} = net) do
     [

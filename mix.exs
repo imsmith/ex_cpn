@@ -33,7 +33,17 @@ defmodule ExCpn.MixProject do
   end
 
   defp docs do
-    [main: "ExCpn", source_ref: "v#{@version}", extras: ["README.md"]]
+    [
+      main: "readme",
+      source_ref: "v#{@version}",
+      extras: ["README.md", "LICENSE"],
+      groups_for_modules: [
+        Format: [ExCpn.Parser, ExCpn.Encoder, ExCpn.Tcl, ExCpn.Validator],
+        Model: [ExCpn.Net, ExCpn.Net.Place, ExCpn.Net.Arc, ExCpn.Net.Guard, ExCpn.Net.Transition],
+        Semantics: [ExCpn.Marking, ExCpn.Expr],
+        Runtime: [ExCpn.Instance]
+      ]
+    ]
   end
 
   defp deps do

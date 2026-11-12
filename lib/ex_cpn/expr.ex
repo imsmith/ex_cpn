@@ -7,8 +7,17 @@ defmodule ExCpn.Expr do
   Missing variables evaluate to `nil`; any comparison involving `nil` is false.
   """
 
+  @typedoc "Parsed expression tree: `{:num, n}`, `{:str, s}`, `{:var, name, field | nil}`, or an operator node."
   @type ast :: term()
 
+  @doc """
+  Parses an expression to an AST.
+
+      iex> ExCpn.Expr.parse("$w(age) > 300")
+      {:ok, {:>, {:var, "w", "age"}, {:num, 300}}}
+      iex> ExCpn.Expr.parse("1 +")
+      {:error, "unexpected end of expression"}
+  """
   @spec parse(String.t()) :: {:ok, ast} | {:error, String.t()}
   def parse(src) do
     with {:ok, toks} <- lex(src, []),
@@ -20,7 +29,19 @@ defmodule ExCpn.Expr do
     end
   end
 
-  @doc "Evaluates a guard expression; returns true only when the result is truthy."
+  @doc """
+  Evaluates a guard expression against a binding; true only when the result is truthy.
+
+  Accepts source or a parsed AST. Source that fails to parse is `false`;
+  run `ExCpn.Validator` first to surface such errors.
+
+      iex> ExCpn.Expr.truthy?("$w(age) > 300", %{"w" => %{"age" => "301"}})
+      true
+      iex> ExCpn.Expr.truthy?(~S<$s(state) eq "denied" || $s(state) eq "unauthenticated">, %{"s" => %{"state" => "denied"}})
+      true
+      iex> ExCpn.Expr.truthy?("$missing > 1", %{})
+      false
+  """
   @spec truthy?(String.t() | ast, map()) :: boolean
   def truthy?(src, binding) when is_binary(src) do
     case parse(src) do
@@ -31,6 +52,13 @@ defmodule ExCpn.Expr do
 
   def truthy?(ast, binding), do: eval(ast, binding) not in [nil, false, 0, "0", "", "false", "no"]
 
+  @doc """
+  Evaluates an AST to a value. Arithmetic on non-numbers and comparisons with `nil` yield `nil`.
+
+      iex> {:ok, ast} = ExCpn.Expr.parse("(1 + 2) * $n")
+      iex> ExCpn.Expr.eval(ast, %{"n" => "4"})
+      12
+  """
   @spec eval(ast, map()) :: term()
   def eval({:num, n}, _), do: n
   def eval({:str, s}, _), do: s

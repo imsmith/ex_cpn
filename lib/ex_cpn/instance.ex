@@ -35,6 +35,7 @@ defmodule ExCpn.Instance do
 
   # --- API -----------------------------------------------------------------
 
+  @doc "Child spec with `restart: :transient`; `id` is `opts[:name]` or this module."
   def child_spec(opts),
     do: %{
       id: opts[:name] || __MODULE__,
@@ -42,6 +43,8 @@ defmodule ExCpn.Instance do
       restart: :transient
     }
 
+  @doc "Starts an instance. See the module docs for options."
+  @spec start_link(keyword) :: :gen_statem.start_ret()
   def start_link(opts) do
     case Keyword.fetch(opts, :name) do
       {:ok, name} -> :gen_statem.start_link(via(name), __MODULE__, opts, [])
@@ -52,12 +55,15 @@ defmodule ExCpn.Instance do
   defp via(name) when is_atom(name), do: {:local, name}
   defp via(other), do: other
 
+  @doc "The current marking."
   @spec marking(:gen_statem.server_ref()) :: Marking.marking()
   def marking(ref), do: :gen_statem.call(ref, :marking)
 
+  @doc "The lifecycle state."
   @spec state(:gen_statem.server_ref()) :: :running | :busy | :quiescent
   def state(ref), do: :gen_statem.call(ref, :state)
 
+  @doc "Adds a token to a place and wakes a quiescent instance."
   @spec put_token(:gen_statem.server_ref(), String.t(), Net.token()) :: :ok
   def put_token(ref, place, token), do: :gen_statem.call(ref, {:put, place, token})
 
@@ -164,6 +170,8 @@ defmodule ExCpn.Instance do
     end
   end
 
+  # Host actions are untrusted code at the library boundary: any raise becomes a
+  # counted failure rather than killing the instance.
   defp run_action(action, name, binding) do
     action.(name, binding)
   rescue

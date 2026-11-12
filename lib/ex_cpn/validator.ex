@@ -3,8 +3,16 @@ defmodule ExCpn.Validator do
 
   alias ExCpn.{Expr, Net}
 
+  @typedoc "Errors block a net from running; warnings are advisory."
   @type problem :: {:error | :warning, String.t()}
 
+  @doc """
+  Returns `{:ok, net}` when there are no errors, otherwise every problem found including warnings.
+
+      iex> {:ok, net} = ExCpn.parse("cpn-spec 1.0\\nplace a -type m:n\\n")
+      iex> ExCpn.Validator.validate(net)
+      {:ok, net}
+  """
   @spec validate(Net.t()) :: {:ok, Net.t()} | {:error, [problem]}
   def validate(%Net{} = net) do
     problems = problems(net)
@@ -12,6 +20,13 @@ defmodule ExCpn.Validator do
     if Enum.any?(problems, &match?({:error, _}, &1)), do: {:error, problems}, else: {:ok, net}
   end
 
+  @doc """
+  Lists every problem, errors and warnings, without deciding pass or fail.
+
+      iex> {:ok, net} = ExCpn.parse("cpn-spec 1.0\\nplace lonely -type m:n\\n")
+      iex> ExCpn.Validator.problems(net)
+      [{:warning, "place 'lonely' is not referenced by any transition"}]
+  """
   @spec problems(Net.t()) :: [problem]
   def problems(%Net{} = net) do
     places = MapSet.new(Net.place_names(net))

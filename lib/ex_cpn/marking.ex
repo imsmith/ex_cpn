@@ -18,16 +18,38 @@ defmodule ExCpn.Marking do
           skip: [String.t()]
         ]
 
+  @doc """
+  The marking at t=0: every place empty except those seeded by `init`.
+
+      iex> {:ok, net} = ExCpn.parse("cpn-spec 1.0\\nplace a -type m:n\\nplace b -type m:n\\ninit a {id 1}\\n")
+      iex> ExCpn.Marking.initial(net)
+      %{"a" => [%{"id" => "1"}], "b" => []}
+  """
   @spec initial(Net.t()) :: marking
   def initial(%Net{} = net) do
     base = Map.new(net.places, &{&1.name, []})
     Enum.reduce(net.init, base, fn {p, tok}, m -> Map.update(m, p, [tok], &(&1 ++ [tok])) end)
   end
 
+  @doc """
+  Appends a token to a place.
+
+      iex> ExCpn.Marking.put(%{"a" => [%{}]}, "a", %{"id" => 2})
+      %{"a" => [%{}, %{"id" => 2}]}
+  """
   @spec put(marking, String.t(), Net.token()) :: marking
   def put(marking, place, token), do: Map.update(marking, place, [token], &(&1 ++ [token]))
 
-  @doc "First binding (one token per in-place) satisfying the guard, or nil."
+  @doc """
+  First binding (one token per in-place) satisfying the guard, or `nil`.
+
+      iex> {:ok, net} = ExCpn.parse("cpn-spec 1.0\\nplace q -type m:n\\ntransition t {\\n  in {q w}\\n  guard {local {$w(n) > 1}}\\n}\\n")
+      iex> t = ExCpn.Net.transition(net, "t")
+      iex> ExCpn.Marking.binding(t, %{"q" => [%{"n" => 1}, %{"n" => 2}]})
+      %{"w" => %{"n" => 2}}
+      iex> ExCpn.Marking.binding(t, %{"q" => [%{"n" => 1}]})
+      nil
+  """
   @spec binding(Transition.t(), marking, opts) :: binding | nil
   def binding(%Transition{} = t, marking, opts \\ []) do
     t.in
@@ -70,6 +92,13 @@ defmodule ExCpn.Marking do
   @doc """
   Fires `t` under `binding`: consumes one bound token per in-place and produces out tokens.
   `produced` overrides the out token for the places it names; others follow the arc expression.
+
+      iex> {:ok, net} = ExCpn.parse("cpn-spec 1.0\\nplace a -type m:n\\nplace b -type m:n\\ntransition t {\\n  in {a x}\\n  out {b $x}\\n}\\n")
+      iex> t = ExCpn.Net.transition(net, "t")
+      iex> ExCpn.Marking.fire(t, %{"a" => [%{"id" => 1}], "b" => []}, %{"x" => %{"id" => 1}})
+      %{"a" => [], "b" => [%{"id" => 1}]}
+      iex> ExCpn.Marking.fire(t, %{"a" => [%{"id" => 1}], "b" => []}, %{"x" => %{"id" => 1}}, %{"b" => %{"sha" => "abc"}})
+      %{"a" => [], "b" => [%{"sha" => "abc"}]}
   """
   @spec fire(Transition.t(), marking, binding, %{String.t() => Net.token()}) :: marking
   def fire(%Transition{} = t, marking, binding, produced \\ %{}) do
@@ -83,7 +112,13 @@ defmodule ExCpn.Marking do
     end)
   end
 
-  @doc "Fires the first enabled transition. Returns `:quiescent` when nothing is enabled."
+  @doc """
+  Fires the first enabled transition. Returns `:quiescent` when nothing is enabled.
+
+      iex> {:ok, net} = ExCpn.parse("cpn-spec 1.0\\nplace a -type m:n\\ntransition t {\\n  in {a x}\\n}\\n")
+      iex> ExCpn.Marking.step(net, %{"a" => []})
+      :quiescent
+  """
   @spec step(Net.t(), marking, opts) :: {:ok, Transition.t(), marking} | :quiescent
   def step(%Net{} = net, marking, opts \\ []) do
     case enabled(net, marking, opts) do
@@ -92,7 +127,15 @@ defmodule ExCpn.Marking do
     end
   end
 
-  @doc "Runs `step` fairly until quiescent or `max` firings. Returns fired transitions in order."
+  @doc """
+  Runs `step` fairly until quiescent or `max` firings. Returns the final marking and the
+  transitions fired, in order.
+
+      iex> {:ok, net} = ExCpn.parse("cpn-spec 1.0\\nplace a -type m:n\\nplace b -type m:n\\ninit a {}\\ntransition t {\\n  in {a x}\\n  out {b $x}\\n}\\n")
+      iex> {marking, fired} = ExCpn.Marking.run(net, ExCpn.Marking.initial(net))
+      iex> {marking, Enum.map(fired, & &1.name)}
+      {%{"a" => [], "b" => [%{}]}, ["t"]}
+  """
   @spec run(Net.t(), marking, opts, pos_integer) :: {marking, [Transition.t()]}
   def run(%Net{} = net, marking, opts \\ [], max \\ 10_000), do: run(net, marking, opts, max, [])
 

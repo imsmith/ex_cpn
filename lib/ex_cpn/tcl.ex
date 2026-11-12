@@ -8,7 +8,14 @@ defmodule ExCpn.Tcl do
   @type word :: String.t()
   @type command :: %{words: [word], line: pos_integer}
 
-  @doc "Splits a script into commands with line numbers."
+  @doc """
+  Splits a script into commands with line numbers.
+
+      iex> ExCpn.Tcl.commands("# comment\\nplace a -type m:n\\n\\ninit a {}")
+      {:ok, [%{line: 2, words: ["place", "a", "-type", "m:n"]}, %{line: 4, words: ["init", "a", ""]}]}
+      iex> ExCpn.Tcl.commands("label \\"unterminated")
+      {:error, {1, "unterminated quote"}}
+  """
   @spec commands(String.t()) :: {:ok, [command]} | {:error, {pos_integer, String.t()}}
   def commands(src) do
     scan(src, 1, [], [], true)
@@ -16,7 +23,12 @@ defmodule ExCpn.Tcl do
     e in ArgumentError -> {:error, {0, Exception.message(e)}}
   end
 
-  @doc "Splits one Tcl list (one line or braced body) into words."
+  @doc """
+  Splits one Tcl list (one line or braced body) into words.
+
+      iex> ExCpn.Tcl.words("{a b} \\"c d\\" e")
+      {:ok, ["a b", "c d", "e"]}
+  """
   @spec words(String.t()) :: {:ok, [word]} | {:error, {pos_integer, String.t()}}
   def words(src) do
     case commands(String.replace(src, "\n", " ")) do
