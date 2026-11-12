@@ -22,7 +22,7 @@ defmodule ExCpn.MarkingTest do
     assert hd(names) == "fire-startup"
     assert "compute-schema-hash" in names
     assert "write-drift-alert" in names
-    assert length(m["alert-row"]) >= 1
+    assert [_ | _] = m["alert-row"]
   end
 
   test "guards select the binding and priority orders transitions" do

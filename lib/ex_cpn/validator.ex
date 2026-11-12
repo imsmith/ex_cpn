@@ -56,11 +56,7 @@ defmodule ExCpn.Validator do
             else: [{:error, "transition '#{t.name}' retry guard names unknown transition '#{e}'"}]
 
         %{target: :local, expr: e} ->
-          with(
-            {:error, m} <- Expr.parse(e),
-            do: [{:error, "transition '#{t.name}' local guard: #{m}"}],
-            else: (_ -> [])
-          )
+          local_guard_problems(t.name, e)
 
         _ ->
           []
@@ -72,6 +68,13 @@ defmodule ExCpn.Validator do
         else: []
 
     arcs ++ guard ++ empty
+  end
+
+  defp local_guard_problems(tname, expr) do
+    case Expr.parse(expr) do
+      {:ok, _} -> []
+      {:error, m} -> [{:error, "transition '#{tname}' local guard: #{m}"}]
+    end
   end
 
   defp unreferenced(net) do

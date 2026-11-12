@@ -113,26 +113,11 @@ defmodule ExCpn.Instance do
 
   def handle_event(kind, :advance, :running, data) when kind in [:internal, :state_timeout] do
     retired = for {name, n} <- data.retries, n >= data.max_retries, do: name
+    opts = [guard: &guard(&1, &2, data), after: data.last, skip: retired]
 
-    case Marking.enabled(data.net, data.marking,
-           guard: &guard(&1, &2, data),
-           after: data.last,
-           skip: retired
-         ) do
-      [] ->
-        {:next_state, :quiescent, data}
-
-      [{t, binding} | _] ->
-        case Map.fetch(data.actions, t.name) do
-          {:ok, action} ->
-            {_pid, ref} =
-              spawn_monitor(fn -> exit({:result, run_action(action, t.name, binding)}) end)
-
-            {:next_state, :busy, %{data | task: {ref, t, binding}}}
-
-          :error ->
-            {:repeat_state, fired(data, t, binding, %{}), []}
-        end
+    case Marking.enabled(data.net, data.marking, opts) do
+      [] -> {:next_state, :quiescent, data}
+      [{t, binding} | _] -> dispatch(data, t, binding)
     end
   end
 
@@ -165,6 +150,19 @@ defmodule ExCpn.Instance do
   def handle_event(:info, _msg, _state, _data), do: :keep_state_and_data
 
   # --- helpers -------------------------------------------------------------
+
+  defp dispatch(data, t, binding) do
+    case Map.fetch(data.actions, t.name) do
+      {:ok, action} ->
+        {_pid, ref} =
+          spawn_monitor(fn -> exit({:result, run_action(action, t.name, binding)}) end)
+
+        {:next_state, :busy, %{data | task: {ref, t, binding}}}
+
+      :error ->
+        {:repeat_state, fired(data, t, binding, %{}), []}
+    end
+  end
 
   defp run_action(action, name, binding) do
     action.(name, binding)

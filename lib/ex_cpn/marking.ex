@@ -6,9 +6,9 @@ defmodule ExCpn.Marking do
   `:guard` option, a `(Guard.t, binding -> boolean)` function; without one they are disabled.
   """
 
+  alias ExCpn.Expr
   alias ExCpn.Net
   alias ExCpn.Net.Transition
-  alias ExCpn.Expr
 
   @type marking :: %{String.t() => [Net.token()]}
   @type binding :: %{String.t() => Net.token()}
@@ -51,7 +51,10 @@ defmodule ExCpn.Marking do
     |> rotate_after(opts[:after])
     |> Enum.sort_by(& &1.priority, :desc)
     |> Enum.flat_map(fn t ->
-      with(%{} = b <- binding(t, marking, opts), do: [{t, b}], else: (_ -> []))
+      case binding(t, marking, opts) do
+        %{} = b -> [{t, b}]
+        nil -> []
+      end
     end)
   end
 
@@ -96,7 +99,11 @@ defmodule ExCpn.Marking do
   defp run(_, m, _, 0, fired), do: {m, Enum.reverse(fired)}
 
   defp run(net, m, opts, n, fired) do
-    last = with([t | _] <- fired, do: t.name, else: (_ -> nil))
+    last =
+      case fired do
+        [t | _] -> t.name
+        [] -> nil
+      end
 
     case step(net, m, Keyword.put(opts, :after, last)) do
       {:ok, t, m} -> run(net, m, opts, n - 1, [t | fired])

@@ -36,13 +36,21 @@ defmodule ExCpn.Expr do
   def eval({:str, s}, _), do: s
   def eval({:var, name, nil}, b), do: Map.get(b, name)
 
-  def eval({:var, name, field}, b),
-    do: with(%{} = m <- Map.get(b, name), do: Map.get(m, field), else: (_ -> nil))
+  def eval({:var, name, field}, b) do
+    case Map.get(b, name) do
+      %{} = m -> Map.get(m, field)
+      _ -> nil
+    end
+  end
 
   def eval({:not, a}, b), do: not truthy?(a, b)
 
-  def eval({:neg, a}, b),
-    do: with(n when is_number(n) <- num(eval(a, b)), do: -n, else: (_ -> nil))
+  def eval({:neg, a}, b) do
+    case num(eval(a, b)) do
+      n when is_number(n) -> -n
+      _ -> nil
+    end
+  end
 
   def eval({:&&, a, c}, b), do: truthy?(a, b) and truthy?(c, b)
   def eval({:||, a, c}, b), do: truthy?(a, b) or truthy?(c, b)
@@ -77,11 +85,18 @@ defmodule ExCpn.Expr do
   defp num(s) when is_binary(s) do
     case Integer.parse(s) do
       {i, ""} -> i
-      _ -> with({f, ""} <- Float.parse(s), do: f, else: (_ -> nil))
+      _ -> float(s)
     end
   end
 
   defp num(_), do: nil
+
+  defp float(s) do
+    case Float.parse(s) do
+      {f, ""} -> f
+      _ -> nil
+    end
+  end
 
   defp str(nil), do: nil
   defp str(true), do: "1"
